@@ -1,3 +1,13 @@
+/*
+ * Robust motion segmentation
+ * by Jakub Vojvoda, vojvoda@swdeveloper.sk
+ * 2016
+ *
+ * licence: GNU LGPL v3
+ * file: motionsegmentation.cpp
+ *
+ */
+
 #include "motionsegmentation.h"
 
 #include <opencv2/imgproc/imgproc.hpp>
@@ -8,7 +18,17 @@
 
 MotionSegmentation::MotionSegmentation()
 {
+    double w[] = {
+        0.05, 0.100, 0.150,  0.200, 0.250, 0.300, 0.350, 0.400, 0.500,
+        0.50, 0.500, 0.525,  0.550, 0.575, 0.600, 0.625, 0.650, 0.675,
+        0.70, 0.725, 0.750,  0.775, 0.800, 0.825, 0.850, 0.875, 0.900
+    };
 
+    weights = std::vector<double>(w, w + sizeof(w) / sizeof(double));
+    accumulator.reserve(weights.size());
+
+    setDiffHistorySize(2);
+    setMotionBufferSize(3);
 }
 
 void MotionSegmentation::setDiffHistorySize(unsigned int s)
@@ -70,6 +90,34 @@ cv::Mat MotionSegmentation::segment(cv::Mat actual, double thresh, double wdf, d
     cv::threshold(map, mask, thresh, 255, CV_THRESH_BINARY);
 
     return mask;
+}
+
+cv::Mat MotionSegmentation::computeMask(cv::Mat segmentation, int close_winsize, int dilation_winsize, double min_area)
+{
+    if (segmentation.empty()) {
+        return cv::Mat();
+    }
+
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(close_winsize, close_winsize));
+    cv::morphologyEx(segmentation, segmentation, cv::MORPH_CLOSE, element);
+
+    element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(dilation_winsize, dilation_winsize));
+    cv::dilate(segmentation, segmentation, element);
+
+    std::vector<std::vector<cv::Point> > contours;
+    std::vector<cv::Vec4i> hierarchy;
+    cv::findContours(segmentation, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
+
+    cv::Mat result = cv::Mat::zeros(segmentation.size(), CV_8U);
+
+    for (unsigned int i = 0; i< contours.size(); i++ ) {
+
+        if (cv::contourArea(contours.at(i)) > min_area) {
+            cv::drawContours(result, contours, i, cv::Scalar(255,255,255), -1, 8, hierarchy, 0);
+        }
+    }
+
+    return result.clone();
 }
 
 cv::Mat MotionSegmentation::compDifference(cv::Mat actual, double thresh)
@@ -200,16 +248,86 @@ cv::Mat MotionSegmentation::calcGradientMotion(cv::Mat actual, double thresh, fl
 
 cv::Mat MotionSegmentation::compDifferenceAverage(cv::Mat actual, int winsize, double thresh, double k)
 {
+    cv::Mat result = cv::Mat::zeros(actual.size(), CV_64F);
 
+    for (unsigned int i = 0; i < weights.size(); i++) {
+
+        double weight = weights.at(i);
+
+        cv::Mat blured;
+        cv::blur(actual, blured, cv::Size(winsize, winsize));
+
+        cv::Mat avg  = compBackAverage(blured, accumulator.at(i), weight);
+        cv::Mat fore = substractBack(actual, avg);
+
+        cv::Mat tmp;
+        cv::pow(fore, 2, tmp);
+
+        cv::Mat gray, bgr = tmp - actual;
+        cv::cvtColor(bgr, gray, CV_BGR2GRAY);
+
+        cv::Mat partial;
+        cv::threshold(gray, partial, thresh, 255, CV_THRESH_TOZERO);
+
+        double norm = 1.0 / 255.0;
+        double w = (weight < 0.5) ? k * weight : weight;
+
+        for (int x = 0; x < partial.rows; x++) {
+            for (int y = 0; y < partial.cols; y++) {
+
+                double value = double(partial.at<uchar>(x,y)) / double(weights.size());
+                result.at<double>(x,y) += norm * w * value;
+            }
+        }
+    }
+
+    cv::Mat gret = cv::Mat(result.size(), CV_8U);
+
+    for (int x = 0; x < gret.rows; x++) {
+        for (int y = 0; y < gret.cols; y++) {
+
+            double rv = result.at<double>(x,y) * result.at<double>(x,y);
+            gret.at<uchar>(x,y) = 255 * rv * double(weights.size());
+        }
+    }
+
+
+    cv::Mat normalized;
+    cv::equalizeHist(gret, normalized);
+
+    return normalized.clone();
 }
 
-cv::Mat MotionSegmentation::compBackAverage(cv::Mat actual, double alpha)
+cv::Mat MotionSegmentation::compBackAverage(cv::Mat actual, cv::Mat &acc, double alpha)
 {
+    if (actual.empty()) {
+        return cv::Mat();
+    }
 
+    if (acc.empty()) {
+        acc = cv::Mat::zeros(actual.size(), CV_64FC3);
+        alpha *= 1;
+    }
+
+    cv::accumulateWeighted(actual, acc, alpha);
+    return acc.clone() / 255.0;
 }
 
 cv::Mat MotionSegmentation::substractBack(cv::Mat actual, cv::Mat back)
 {
+    if (actual.empty() || back.empty()) {
+        return cv::Mat();
+    }
+
+    if (back.type() != CV_64FC3 && back.type() != CV_32FC3) {
+        return cv::Mat();
+    }
+
+    cv::Mat conv, diff;
+    back.convertTo(conv, CV_8UC3, 255);
+    cv::absdiff(actual, conv, diff);
+
+    return diff.clone();
 
 }
 
