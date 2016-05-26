@@ -1,9 +1,9 @@
 # Motion segmentation
 Robust motion detection/segmentation using OpenCV
 
-# Usage
+## Usage
 
-# Example
+## Example
 
-# Licence
+## Licence
 GNU LGPL v3 (see LICENCE)
