@@ -7,7 +7,7 @@
  * file: motionsegmentation.cpp
  *
  */
-
+ 
 #include "motionsegmentation.h"
 
 #include <opencv2/imgproc/imgproc.hpp>
@@ -15,6 +15,12 @@
 #include <opencv2/video/tracking.hpp>
 #include <time.h>
 #include <cmath>
+
+
+#ifndef M_PI
+    #define M_PI 3.14159
+#endif
+
 
 MotionSegmentation::MotionSegmentation()
 {
@@ -25,7 +31,10 @@ MotionSegmentation::MotionSegmentation()
     };
 
     weights = std::vector<double>(w, w + sizeof(w) / sizeof(double));
-    accumulator.reserve(weights.size());
+
+    for (unsigned int i = 0; i < weights.size(); i++) {
+        accumulator.push_back(cv::Mat());
+    }
 
     setDiffHistorySize(2);
     setMotionBufferSize(3);
@@ -67,7 +76,7 @@ cv::Mat MotionSegmentation::segment(cv::Mat actual, double thresh, double wdf, d
     }
 
     if (wda > 0) {
-        mavg = compDifferenceAverage(img, 3, 20.0, 1.5);
+        mavg = compDifferenceAverage(img, 3, 40.0, 1.5);
         cv::normalize(mavg, mavg, 0, 255, CV_MINMAX);
     }
 

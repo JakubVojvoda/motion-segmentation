@@ -4,10 +4,10 @@
  * 2016
  *
  * licence: GNU LGPL v3
- * file: motionsegmentation.cpp
+ * file: motionsegmentation.h
  *
  */
-
+ 
 #ifndef MOTIONSEGMENTATION_H
 #define MOTIONSEGMENTATION_H
 
